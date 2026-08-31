@@ -1,0 +1,14 @@
+ID 1 = Thies 1
+ID 2 = Thies 2
+ID 3 = Thies 3
+ID 4 = Thies 4
+ID 5 = Banana 5
+ID 6 = Banana 6
+ID 7 = Banana 7
+ID 8 = Banana 8
+ID 9 = Fong 11
+ID 10 = Tecco 12
+ID 11 = Tecco 13
+ID 12 = Tecco 14
+ID 13 = Tecco 15
+ID 14 = Tecco 16
