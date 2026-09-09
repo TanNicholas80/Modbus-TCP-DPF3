@@ -87,23 +87,10 @@ async function syncAlarmStatus(machine, retries = 1) {
         // Address 105: Status / Flag Pinjam Mesin (1 / 0)
         const signal105 = (data.address_105 === 1) || (data.signals && data.signals['105'] === 1) || (data.signal_105 === 1);
 
-        const resyncToken = Number(data.resync_token || 0);
-
         if (machineState[machine.apiMachineId]) {
-            const mState = machineState[machine.apiMachineId];
-            
-            // Cek jika ada sinyal RESYNC baru dari dashboard/server
-            if (mState.lastResyncToken !== undefined && resyncToken > 0 && mState.lastResyncToken !== resyncToken) {
-                console.log(`[RESYNC TRIGGERED] Machine ${machine.apiMachineId} (Token: ${resyncToken}). Resetting write cache for immediate sync.`);
-                mState.lastWrittenAlarm = -1;
-                mState.lastWritten103 = -1;
-                mState.lastWritten105 = -1;
-            }
-            mState.lastResyncToken = resyncToken;
-
-            mState.targetAlarm = alarmOn ? 1 : 0;
-            mState.target103 = signal103 ? 1 : 0;
-            mState.target105 = signal105 ? 1 : 0;
+            machineState[machine.apiMachineId].targetAlarm = alarmOn ? 1 : 0;
+            machineState[machine.apiMachineId].target103 = signal103 ? 1 : 0;
+            machineState[machine.apiMachineId].target105 = signal105 ? 1 : 0;
         }
     } catch (e) {
         if (retries > 0 && (e.code === 'ECONNABORTED' || e.message.includes('timeout'))) {
@@ -135,9 +122,7 @@ async function gatewayWorker(gateway) {
                 lastWritten103: -1,
                 target103: 0,
                 lastWritten105: -1,
-                target105: 0,
-                lastHeartbeatWrite: Date.now(),
-                lastResyncToken: 0
+                target105: 0
             };
         }
     });
@@ -197,44 +182,37 @@ async function gatewayWorker(gateway) {
                         state.lastSync = Date.now();
                     }
 
-                    const now = Date.now();
-                    const isHeartbeatDue = (now - (state.lastHeartbeatWrite || 0) > 30000);
-
                     // --- 2. TULIS STATUS ALARM (Address 100) ---
                     const addrAlarm = machine.addressAlarm || 100;
-                    if (state.targetAlarm !== state.lastWrittenAlarm || isHeartbeatDue) {
+                    if (state.targetAlarm !== state.lastWrittenAlarm) {
                         await sleep(50);
                         if (!client.isOpen) throw new Error("Koneksi terputus sebelum menulis data");
                         
                         await client.writeRegister(addrAlarm, state.targetAlarm);
                         state.lastWrittenAlarm = state.targetAlarm;
-                        console.log(`[PLC WRITE SUCCESS${isHeartbeatDue ? ' - HEARTBEAT' : ''}] Machine ${machine.apiMachineId} Alarm (Addr ${addrAlarm}) -> ${state.targetAlarm}`);
+                        console.log(`[PLC WRITE SUCCESS] Machine ${machine.apiMachineId} Alarm (Addr ${addrAlarm}) -> ${state.targetAlarm}`);
                     }
 
                     // --- 3. TULIS BARCODE LENGKAP / MAINTENANCE MANUAL END (Address 103) ---
                     const addr103 = machine.addressCompleteOrMaint || 103;
-                    if (state.target103 !== state.lastWritten103 || isHeartbeatDue) {
+                    if (state.target103 !== state.lastWritten103) {
                         await sleep(50);
                         if (!client.isOpen) throw new Error("Koneksi terputus sebelum menulis data");
                         
                         await client.writeRegister(addr103, state.target103);
                         state.lastWritten103 = state.target103;
-                        console.log(`[PLC WRITE SUCCESS${isHeartbeatDue ? ' - HEARTBEAT' : ''}] Machine ${machine.apiMachineId} Barcode Complete/Maint End (Addr ${addr103}) -> ${state.target103}`);
+                        console.log(`[PLC WRITE SUCCESS] Machine ${machine.apiMachineId} Barcode Complete/Maint End (Addr ${addr103}) -> ${state.target103}`);
                     }
 
                     // --- 4. TULIS STATUS PINJAM MESIN (Address 105) ---
                     const addr105 = machine.addressPinjamMesin || 105;
-                    if (state.target105 !== state.lastWritten105 || isHeartbeatDue) {
+                    if (state.target105 !== state.lastWritten105) {
                         await sleep(50);
                         if (!client.isOpen) throw new Error("Koneksi terputus sebelum menulis data");
                         
                         await client.writeRegister(addr105, state.target105);
                         state.lastWritten105 = state.target105;
-                        console.log(`[PLC WRITE SUCCESS${isHeartbeatDue ? ' - HEARTBEAT' : ''}] Machine ${machine.apiMachineId} Pinjam Mesin (Addr ${addr105}) -> ${state.target105}`);
-                    }
-
-                    if (isHeartbeatDue) {
-                        state.lastHeartbeatWrite = now;
+                        console.log(`[PLC WRITE SUCCESS] Machine ${machine.apiMachineId} Pinjam Mesin (Addr ${addr105}) -> ${state.target105}`);
                     }
 
                     // Jeda wajib antar Slave ID agar fisik converter RS485 tidak crash/tabrakan data
