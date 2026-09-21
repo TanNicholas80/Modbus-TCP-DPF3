@@ -11,7 +11,7 @@ const gateways = [
         id: "GATEWAY_SECTION_1",
         ip: "192.168.111.213", // Ganti dengan IP USR-W610 Bagian 1
         port: 8899,
-        description: "Area Produksi Banana 5-8"
+        description: "Area Produksi Banana 5-8 dan Tecco 9,10,13,14"
     },
     {
         id: "GATEWAY_SECTION_2",
@@ -28,7 +28,7 @@ const gateways = [
 ];
 
 const machineMapping = [
-    // --- BAGIAN 1 (GATEWAY 1) ---
+    // --- BAGIAN 1 (GATEWAY 1) Banana 5-8 ---
     { 
         apiMachineId: 5,         // ID untuk parameter API POST
         slaveId: 5,              // ID Modbus di PLC
@@ -59,6 +59,43 @@ const machineMapping = [
     { 
         apiMachineId: 8, 
         slaveId: 8, 
+        gatewayId: "GATEWAY_SECTION_1", 
+        addressStatus: 200,
+        addressAlarm: 100,
+        addressCompleteOrMaint: 103,
+        addressPinjamMesin: 105
+    },
+    // --- BAGIAN 1 (GATEWAY 1) Tecco 9, 10, 13, 14 ---
+    { 
+        apiMachineId: 13, 
+        slaveId: 9, 
+        gatewayId: "GATEWAY_SECTION_1", 
+        addressStatus: 200,
+        addressAlarm: 100,
+        addressCompleteOrMaint: 103,
+        addressPinjamMesin: 105
+    },
+    { 
+        apiMachineId: 14, 
+        slaveId: 10, 
+        gatewayId: "GATEWAY_SECTION_1", 
+        addressStatus: 200,
+        addressAlarm: 100,
+        addressCompleteOrMaint: 103,
+        addressPinjamMesin: 105
+    },
+    { 
+        apiMachineId: 11, 
+        slaveId: 13, 
+        gatewayId: "GATEWAY_SECTION_1", 
+        addressStatus: 200,
+        addressAlarm: 100,
+        addressCompleteOrMaint: 103,
+        addressPinjamMesin: 105
+    },
+    { 
+        apiMachineId: 12, 
+        slaveId: 14, 
         gatewayId: "GATEWAY_SECTION_1", 
         addressStatus: 200,
         addressAlarm: 100,
