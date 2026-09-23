@@ -2,16 +2,34 @@
 const axios = require("axios");
 const http = require("http");
 const https = require("https");
-const { modbusConfig, gateways, machineMapping, apiBaseUrl } = require("./config");
+const { modbusConfig, gateways, machineMapping, apiBaseUrl, apiSignalsUrl } = require("./config");
 
 // Buat instance Axios khusus dengan Keep-Alive aktif
 const api = axios.create({
-    httpAgent: new http.Agent({ keepAlive: true }),
-    httpsAgent: new https.Agent({ keepAlive: true }),
+    httpAgent: new http.Agent({ keepAlive: true, maxSockets: 10 }),
+    httpsAgent: new https.Agent({ keepAlive: true, maxSockets: 10 }),
 });
 
 const machineState = {};
 const TOKEN = "7b89d4e1f2a0c3b5";
+
+// Inisialisasi awal seluruh state mesin
+machineMapping.forEach(m => {
+    if (!machineState[m.apiMachineId]) {
+        machineState[m.apiMachineId] = { 
+            lastStatus: -1, 
+            lastSync: 0, 
+            lastWrittenAlarm: -1, 
+            targetAlarm: 0,
+            lastWritten103: -1,
+            target103: 0,
+            lastWritten105: -1,
+            target105: 0,
+            lastHeartbeatWrite: Date.now(),
+            lastResyncToken: 0
+        };
+    }
+});
 
 // Helper untuk jeda waktu
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -67,103 +85,78 @@ function queueMachineState(machine, status) {
 }
 
 // ==========================================
-// SINKRONISASI GET STATUS SINYAL (100, 103, 105)
+// SINKRONISASI BATCH GLOBAL (API GET SIGNALS 100, 103, 105)
+// Mengambil status semua mesin dalam 1 request tunggal alih-alih 14 request terpisah
 // ==========================================
-async function syncAlarmStatus(machine, retries = 1) {
-    const url = `${apiBaseUrl}/${machine.apiMachineId}/alarm`;
+let consecutiveBatchErrors = 0;
+
+async function syncAllSignalsBatch() {
+    const url = apiSignalsUrl || `${apiBaseUrl.replace(/\/mesin\/?$/, '')}/signals`;
     try {
         const response = await api.get(url, {
             headers: { 'X-DEVICE-TOKEN': TOKEN },
             timeout: 8000 
         });
-        const data = response.data || {};
+        const items = response.data?.data || [];
         
-        // Address 100: Alarm ON/OFF (1 / 0)
-        const alarmOn = data.alarm_on ?? (data.address_100 === 1);
-        
-        // Address 103: Maintenance Selesai Manual ATAU Seluruh Barcode Lengkap (1 / 0)
-        const signal103 = (data.address_103 === 1) || (data.signals && data.signals['103'] === 1) || (data.signal_103 === 1);
-        
-        // Address 105: Status / Flag Pinjam Mesin (1 / 0)
-        const signal105 = (data.address_105 === 1) || (data.signals && data.signals['105'] === 1) || (data.signal_105 === 1);
+        for (const data of items) {
+            const mId = data.mesin_id;
+            if (!mId || !machineState[mId]) continue;
 
-        const resyncToken = Number(data.resync_token || 0);
+            const alarmOn = data.alarm_on ?? (data.address_100 === 1);
+            const signal103 = (data.address_103 === 1) || (data.signals && data.signals['103'] === 1) || (data.signal_103 === 1);
+            const signal105 = (data.address_105 === 1) || (data.signals && data.signals['105'] === 1) || (data.signal_105 === 1);
+            const resyncToken = Number(data.resync_token || 0);
 
-        if (machineState[machine.apiMachineId]) {
-            const mState = machineState[machine.apiMachineId];
-            
-            // Cek jika ada sinyal RESYNC baru dari dashboard/server
+            const mState = machineState[mId];
             if (mState.lastResyncToken !== undefined && resyncToken > 0 && mState.lastResyncToken !== resyncToken) {
-                console.log(`[RESYNC TRIGGERED] Machine ${machine.apiMachineId} (Token: ${resyncToken}). Resetting write cache for immediate sync.`);
+                console.log(`[RESYNC TRIGGERED] Machine ${mId} (Token: ${resyncToken}). Resetting write cache for immediate sync.`);
                 mState.lastWrittenAlarm = -1;
                 mState.lastWritten103 = -1;
                 mState.lastWritten105 = -1;
             }
             mState.lastResyncToken = resyncToken;
-
             mState.targetAlarm = alarmOn ? 1 : 0;
             mState.target103 = signal103 ? 1 : 0;
             mState.target105 = signal105 ? 1 : 0;
         }
+
+        consecutiveBatchErrors = 0;
     } catch (e) {
-        if (retries > 0 && (e.code === 'ECONNABORTED' || e.message.includes('timeout'))) {
-            console.log(`[API RETRY] Machine ${machine.apiMachineId} retrying...`);
-            await sleep(1000);
-            return syncAlarmStatus(machine, retries - 1);
-        }
-        
-        console.error(`[API SIGNALS ERR] Machine ${machine.apiMachineId}: ${e.message}`);
+        consecutiveBatchErrors++;
+        console.error(`[API SIGNALS BATCH ERR] (${consecutiveBatchErrors}x): ${e.message}`);
     }
 }
 
+// Loop Sinkronisasi Batch Global (1 request untuk 14 mesin setiap 4-5 detik)
+async function startGlobalSignalSyncLoop() {
+    try {
+        await syncAllSignalsBatch();
+    } catch (err) {
+        console.error(`[GLOBAL SIGNAL LOOP ERR] ${err.message}`);
+    } finally {
+        // Jika sedang error berturut-turut, beri jeda backoff sedikit lebih lama (misal 8 detik)
+        const delay = consecutiveBatchErrors > 2 ? 8000 : 4000;
+        setTimeout(startGlobalSignalSyncLoop, delay);
+    }
+}
+
+// Jalankan siklus sinkronisasi batch sinyal global
+startGlobalSignalSyncLoop();
+
 // ==========================================
-// WORKER GATEWAY
+// WORKER GATEWAY MODBUS (Membaca Register PLC & Menulis ke Modbus)
 // ==========================================
 async function gatewayWorker(gateway) {
     let client = null;
     let consecutiveTimeouts = 0;
     
-    // Inisialisasi state awal untuk mesin di gateway ini
     const machines = machineMapping.filter(m => m.gatewayId === gateway.id);
-    machines.forEach(m => {
-        if (!machineState[m.apiMachineId]) {
-            machineState[m.apiMachineId] = { 
-                lastStatus: -1, 
-                lastSync: 0, 
-                lastWrittenAlarm: -1, 
-                targetAlarm: 0,
-                lastWritten103: -1,
-                target103: 0,
-                lastWritten105: -1,
-                target105: 0,
-                lastHeartbeatWrite: Date.now(),
-                lastResyncToken: 0
-            };
-        }
-    });
-
-    // Loop Sinkronisasi Alarm & Sinyal (100, 103, 105)
-    async function startSignalSyncLoop() {
-        try {
-            for (const m of machines) {
-                await syncAlarmStatus(m);
-                await sleep(300); // Jeda antar hit GET API per mesin
-            }
-        } catch (err) {
-            console.error(`[SIGNAL LOOP ERR] ${gateway.id}: ${err.message}`);
-        } finally {
-            // Jalankan kembali loop setelah 5 detik
-            setTimeout(startSignalSyncLoop, 5000);
-        }
-    }
-    
-    // Jalankan siklus sinkronisasi sinyal pertama kali
-    startSignalSyncLoop();
 
     // Loop Utama Polling Modbus TCP ke RS485 Gateway
     while (true) {
         try {
-            // 1. PENANGANAN KONEKSI TCP
+            // 1. PENANGANAN KONEKSI TCP KE GATEWAY RS485
             if (!client || !client.isOpen) {
                 console.log(`[ATTEMPT CONNECT] ${gateway.id} (${gateway.ip})`);
                 
@@ -179,7 +172,7 @@ async function gatewayWorker(gateway) {
                 consecutiveTimeouts = 0;
             }
 
-            // 2. SEQUENTIAL POLLING MODBUS SLAVE
+            // 2. SEQUENTIAL POLLING MODBUS SLAVE PER MESIN
             for (const machine of machines) {
                 try {
                     if (!client.isOpen) throw new Error("Koneksi terputus sebelum membaca data");

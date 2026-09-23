@@ -11,7 +11,7 @@ const gateways = [
         id: "GATEWAY_SECTION_1",
         ip: "192.168.111.213", // Ganti dengan IP USR-W610 Bagian 1
         port: 8899,
-        description: "Area Produksi Banana 5-8 dan Tecco 9,10,13,14"
+        description: "Area Produksi Banana 5-8"
     },
     {
         id: "GATEWAY_SECTION_2",
@@ -24,6 +24,12 @@ const gateways = [
         ip: "192.168.111.215", // Ganti dengan IP USR-W610 Bagian 3
         port: 8899,
         description: "Area Produksi Tecco & Fong"
+    },
+    {
+        id: "GATEWAY_SECTION_4",
+        ip: "192.168.111.212", // Ganti dengan IP USR-W610 Bagian 4
+        port: 8899,
+        description: "Area Produksi Tecco 9,10,13,14"
     }
 ];
 
@@ -59,43 +65,6 @@ const machineMapping = [
     { 
         apiMachineId: 8, 
         slaveId: 8, 
-        gatewayId: "GATEWAY_SECTION_1", 
-        addressStatus: 200,
-        addressAlarm: 100,
-        addressCompleteOrMaint: 103,
-        addressPinjamMesin: 105
-    },
-    // --- BAGIAN 1 (GATEWAY 1) Tecco 9, 10, 13, 14 ---
-    { 
-        apiMachineId: 13, 
-        slaveId: 9, 
-        gatewayId: "GATEWAY_SECTION_1", 
-        addressStatus: 200,
-        addressAlarm: 100,
-        addressCompleteOrMaint: 103,
-        addressPinjamMesin: 105
-    },
-    { 
-        apiMachineId: 14, 
-        slaveId: 10, 
-        gatewayId: "GATEWAY_SECTION_1", 
-        addressStatus: 200,
-        addressAlarm: 100,
-        addressCompleteOrMaint: 103,
-        addressPinjamMesin: 105
-    },
-    { 
-        apiMachineId: 11, 
-        slaveId: 13, 
-        gatewayId: "GATEWAY_SECTION_1", 
-        addressStatus: 200,
-        addressAlarm: 100,
-        addressCompleteOrMaint: 103,
-        addressPinjamMesin: 105
-    },
-    { 
-        apiMachineId: 12, 
-        slaveId: 14, 
         gatewayId: "GATEWAY_SECTION_1", 
         addressStatus: 200,
         addressAlarm: 100,
@@ -160,13 +129,57 @@ const machineMapping = [
         addressCompleteOrMaint: 103,
         addressPinjamMesin: 105
     },
+
+    // --- BAGIAN 4 (GATEWAY 4) Tecco 9, 10, 13, 14 ---
+    { 
+        apiMachineId: 13, 
+        slaveId: 9, 
+        gatewayId: "GATEWAY_SECTION_4", 
+        addressStatus: 200,
+        addressAlarm: 100,
+        addressCompleteOrMaint: 103,
+        addressPinjamMesin: 105
+    },
+    { 
+        apiMachineId: 14, 
+        slaveId: 10, 
+        gatewayId: "GATEWAY_SECTION_4", 
+        addressStatus: 200,
+        addressAlarm: 100,
+        addressCompleteOrMaint: 103,
+        addressPinjamMesin: 105
+    },
+    { 
+        apiMachineId: 11, 
+        slaveId: 13, 
+        gatewayId: "GATEWAY_SECTION_4", 
+        addressStatus: 200,
+        addressAlarm: 100,
+        addressCompleteOrMaint: 103,
+        addressPinjamMesin: 105
+    },
+    { 
+        apiMachineId: 12, 
+        slaveId: 14, 
+        gatewayId: "GATEWAY_SECTION_4", 
+        addressStatus: 200,
+        addressAlarm: 100,
+        addressCompleteOrMaint: 103,
+        addressPinjamMesin: 105
+    },
 ];
 
-const apiBaseUrl = "https://dpf3dunia.com/api/iot/mesin";
+// Base URL API IoT
+// TIPS: Jika ingin bypass Cloudflare untuk menghindari timeout 522 pada Modbus,
+// gunakan subdomain DNS-Only (Grey Cloud) atau IP VPS, misal: "http://iot.dpf3dunia.com/api/iot"
+const apiBase = process.env.LARAVEL_API_URL || "http://iot.dpf3dunia.com/api/iot";
+const apiBaseUrl = `${apiBase}/mesin`;
+const apiSignalsUrl = `${apiBase}/signals`;
 
 module.exports = {
     modbusConfig,
     gateways,
     machineMapping,
-    apiBaseUrl
+    apiBaseUrl,
+    apiSignalsUrl
 };
